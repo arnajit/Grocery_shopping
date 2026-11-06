@@ -55,6 +55,7 @@ textarea{min-height:70px;resize:vertical}
 .btn.small{min-height:36px;padding:.35rem .6rem;font-size:.9rem}
 .btn.danger{color:var(--bad)}
 .btn-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:.5rem;margin-top:.75rem}
+.btn-grid .btn{line-height:1.2}
 .hint{font-size:.85rem;color:var(--muted);margin:.4rem 0 0}
 
 .store{border-top:1px dashed var(--line);padding-top:.85rem;margin-top:.85rem}
@@ -130,10 +131,10 @@ textarea{min-height:70px;resize:vertical}
     <p class="hint" id="barcodeInfo"></p>
     <div class="btn-grid">
       <button class="btn small" id="copyBtn">Copy name</button>
-      <button class="btn small" id="amzBtn">Copy + Amazon</button>
-      <button class="btn small" id="fkBtn">Copy + Flipkart</button>
+      <button class="btn small" id="amzBtn">Copy + Amazon Now</button>
+      <button class="btn small" id="fkBtn">Copy + Flipkart Minutes</button>
     </div>
-    <p class="hint">The name goes to your clipboard, so you can paste it into Amazon Fresh or Flipkart Minutes.</p>
+    <p class="hint">Opens the search in Amazon Now or Flipkart Minutes. The name is also copied, so you can paste it if the search box comes up empty.</p>
     <div id="lastTime"></div>
   </div>
 
@@ -189,6 +190,18 @@ textarea{min-height:70px;resize:vertical}
     </div>
     <div class="row" style="margin-top:.6rem"><button class="btn primary" data-sync>Sync to Google Sheet</button></div>
     <p class="hint sync-status"></p>
+  </div>
+  <div class="panel">
+    <h2 style="font-size:1.05rem;margin-bottom:.4rem">Store search links</h2>
+    <p class="hint" style="margin-top:0">If a button opens regular Amazon or Flipkart instead of Now or Minutes, search for anything inside Amazon Now or Flipkart Minutes on your phone, copy that page’s link, and paste it here.</p>
+    <label for="tAmz" style="margin-top:.6rem">Amazon Now search link</label>
+    <input id="tAmz" autocomplete="off" inputmode="url">
+    <label for="tFk" style="margin-top:.5rem">Flipkart Minutes search link</label>
+    <input id="tFk" autocomplete="off" inputmode="url">
+    <div class="row" style="margin-top:.6rem">
+      <button class="btn" id="tReset">Use default links</button>
+      <button class="btn" id="tSave">Save links</button>
+    </div>
   </div>
   <div class="panel">
     <h2 style="font-size:1.05rem;margin-bottom:.4rem">Backup</h2>
@@ -355,8 +368,39 @@ function copyText(t){
 function fallbackCopy(t){ var ta = document.createElement("textarea"); ta.value = t; ta.style.position = "fixed"; ta.style.opacity = "0"; document.body.appendChild(ta); ta.select(); try { document.execCommand("copy"); } catch(e) {} ta.remove(); }
 function needName(){ var n = $("pName").value.trim(); if (!n) { toast("Type or scan a product name first"); $("pName").focus(); } return n; }
 $("copyBtn").onclick = function(){ var n = needName(); if (n) copyText(n).then(function(){ toast("Copied: " + n); }); };
-$("amzBtn").onclick = function(){ var n = needName(); if (!n) return; copyText(n); window.open("https://www.amazon.in/s?k=" + encodeURIComponent(n), "_blank"); };
-$("fkBtn").onclick = function(){ var n = needName(); if (!n) return; copyText(n); window.open("https://www.flipkart.com/search?q=" + encodeURIComponent(n), "_blank"); };
+var DEFAULT_TPL = {
+  amz: "https://www.amazon.in/s?k={q}&almBrandId=qqfsWw9RkO&fpw=alm",
+  fk:  "https://www.flipkart.com/search?q={q}&marketplace=HYPERLOCAL"
+};
+function tpl(which){ return db.settings[which + "Tpl"] || DEFAULT_TPL[which]; }
+// Turn a pasted search-page link into a template by swapping its search term for {q}
+function toTemplate(link, param){
+  link = link.trim(); if (!link) return "";
+  if (link.indexOf("{q}") >= 0) return link;
+  try {
+    var u = new URL(link);
+    u.searchParams.set(param, "QQQ");
+    return u.toString().replace("QQQ", "{q}");
+  } catch(e) { return null; }
+}
+function openStore(which){
+  var n = needName(); if (!n) return;
+  copyText(n);
+  window.open(tpl(which).replace("{q}", encodeURIComponent(n)), "_blank");
+}
+$("amzBtn").onclick = function(){ openStore("amz"); };
+$("fkBtn").onclick = function(){ openStore("fk"); };
+function fillTpl(){ $("tAmz").value = tpl("amz"); $("tFk").value = tpl("fk"); }
+$("tSave").onclick = function(){
+  var a = toTemplate($("tAmz").value, "k"), f = toTemplate($("tFk").value, "q");
+  if (a === null || f === null) { toast("Paste a full link starting with https://"); return; }
+  if (a && a.indexOf("amazon.") < 0) { toast("The Amazon link should be from amazon.in"); return; }
+  if (f && f.indexOf("flipkart.com") < 0) { toast("The Flipkart link should be from flipkart.com"); return; }
+  db.settings.amzTpl = a && a !== DEFAULT_TPL.amz ? a : "";
+  db.settings.fkTpl = f && f !== DEFAULT_TPL.fk ? f : "";
+  persist(); fillTpl(); toast("Store links saved");
+};
+$("tReset").onclick = function(){ db.settings.amzTpl = ""; db.settings.fkTpl = ""; persist(); fillTpl(); toast("Default links restored"); };
 
 /* ---------- save / cart ---------- */
 function save(silent){
@@ -612,7 +656,7 @@ async function onCode(code){
 }
 
 /* ---------- init ---------- */
-$("sUrl").value = db.settings.url || ""; $("sKey").value = db.settings.key || "";
+$("sUrl").value = db.settings.url || ""; $("sKey").value = db.settings.key || ""; fillTpl();
 buildForms(); loadIntoForm(cur, true); renderCart(); renderHistory(); renderSync();
 })();
 </script>
