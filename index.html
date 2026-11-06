@@ -54,7 +54,7 @@ textarea{min-height:70px;resize:vertical}
 @media (prefers-color-scheme:dark){.btn.primary{background:var(--tag);color:var(--tag-ink);border-color:var(--tag)}}
 .btn.small{min-height:36px;padding:.35rem .6rem;font-size:.9rem}
 .btn.danger{color:var(--bad)}
-.btn-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:.5rem;margin-top:.75rem}
+.btn-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:.5rem;margin-top:.75rem}
 .btn-grid .btn{line-height:1.2}
 .hint{font-size:.85rem;color:var(--muted);margin:.4rem 0 0}
 
@@ -100,6 +100,11 @@ textarea{min-height:70px;resize:vertical}
 #scanner video{width:100%;max-width:480px;border-radius:12px;background:#000;aspect-ratio:3/4;object-fit:cover}
 #scanner p{color:#fff;text-align:center}
 .scan-frame{position:relative;width:100%;max-width:480px}
+.scan-ctrl{display:flex;align-items:center;gap:.75rem;width:100%;max-width:480px;margin-bottom:.75rem}
+.scan-ctrl input{flex:1;min-height:auto;padding:0;background:transparent;border:0;accent-color:var(--tag)}
+.scan-btns{display:flex;gap:.5rem;flex-wrap:wrap;justify-content:center}
+.scan-btns .btn{background:#fff;color:#000;border-color:#fff}
+.scan-btns .btn[hidden]{display:none}
 .scan-frame::after{content:"";position:absolute;left:10%;right:10%;top:45%;height:2px;background:var(--tag);box-shadow:0 0 12px var(--tag)}
 
 #toast{position:fixed;left:50%;bottom:calc(1.25rem + env(safe-area-inset-bottom,0px));transform:translateX(-50%) translateY(150%);background:var(--ink);color:var(--bg);padding:.65rem 1rem;border-radius:10px;font-weight:700;transition:transform .2s;z-index:30;max-width:90vw;text-align:center}
@@ -131,10 +136,11 @@ textarea{min-height:70px;resize:vertical}
     <p class="hint" id="barcodeInfo"></p>
     <div class="btn-grid">
       <button class="btn small" id="copyBtn">Copy name</button>
+      <button class="btn small" id="gBtn">Copy + Google</button>
       <button class="btn small" id="amzBtn">Copy + Amazon Now</button>
       <button class="btn small" id="fkBtn">Copy + Flipkart Minutes</button>
     </div>
-    <p class="hint">Opens the search in Amazon Now or Flipkart Minutes. The name is also copied, so you can paste it if the search box comes up empty.</p>
+    <p class="hint">Each button copies the name and opens a search: Google for a quick price check across sites, or straight into Amazon Now and Flipkart Minutes. Paste the name if a search box comes up empty.</p>
     <div id="lastTime"></div>
   </div>
 
@@ -216,8 +222,13 @@ textarea{min-height:70px;resize:vertical}
 
 <div id="scanner" hidden>
   <div class="scan-frame"><video id="video" playsinline muted></video></div>
-  <p id="scanMsg">Point the camera at the barcode</p>
-  <button class="btn" id="stopScan" style="background:#fff;color:#000">Cancel</button>
+  <p id="scanMsg">Hold the barcode flat inside the frame, about a hand’s length away</p>
+  <div id="zoomWrap" class="scan-ctrl" hidden><label for="zoom" style="color:#fff;margin:0">Zoom</label><input type="range" id="zoom"></div>
+  <div class="scan-btns">
+    <button class="btn" id="torchBtn" hidden>Light on</button>
+    <button class="btn" id="camBtn" hidden>Switch camera</button>
+    <button class="btn" id="stopScan">Cancel</button>
+  </div>
 </div>
 <div id="toast" role="status" aria-live="polite"></div>
 
@@ -389,6 +400,7 @@ function openStore(which){
   window.open(tpl(which).replace("{q}", encodeURIComponent(n)), "_blank");
 }
 $("amzBtn").onclick = function(){ openStore("amz"); };
+$("gBtn").onclick = function(){ var n = needName(); if (!n) return; copyText(n); window.open("https://www.google.com/search?q=" + encodeURIComponent(n + " price"), "_blank"); };
 $("fkBtn").onclick = function(){ openStore("fk"); };
 function fillTpl(){ $("tAmz").value = tpl("amz"); $("tFk").value = tpl("fk"); }
 $("tSave").onclick = function(){
@@ -601,40 +613,124 @@ function showTab(t){
 document.querySelector("nav").addEventListener("click", function(e){ var b = e.target.closest("[data-tab]"); if (b) showTab(b.getAttribute("data-tab")); });
 
 /* ---------- scanner ---------- */
-var stream = null, zx = null, loopOn = false;
-function stopScan(){
-  loopOn = false;
+var stream = null, track = null, zx = null, detector = null, scanActive = false, cams = [], torchOn = false;
+var WANTED = ["ean_13","ean_8","upc_a","upc_e","code_128"];
+
+function stopStream(){
   if (zx) { try { zx.reset(); } catch(e) {} zx = null; }
   if (stream) { stream.getTracks().forEach(function(t){ t.stop(); }); stream = null; }
-  $("scanner").hidden = true;
+  track = null; torchOn = false;
+  var v = $("video"); v.pause(); v.srcObject = null;
 }
+function stopScan(){ scanActive = false; stopStream(); $("scanner").hidden = true; }
 $("stopScan").onclick = stopScan;
+
+function camConstraints(){
+  // Ask for a sharp 1080p feed instead of the low default
+  var v = {width:{ideal:1920}, height:{ideal:1080}, frameRate:{ideal:30}};
+  if (db.settings.camId) v.deviceId = {exact:db.settings.camId}; else v.facingMode = {ideal:"environment"};
+  return {video:v, audio:false};
+}
+async function openCamera(){
+  try { stream = await navigator.mediaDevices.getUserMedia(camConstraints()); }
+  catch(e) {
+    if (!db.settings.camId || e.name === "NotAllowedError") throw e;
+    db.settings.camId = ""; persist();               // saved camera gone – fall back to default
+    stream = await navigator.mediaDevices.getUserMedia(camConstraints());
+  }
+  track = stream.getVideoTracks()[0];
+  var v = $("video"); v.srcObject = stream; await v.play();
+  await tuneTrack();
+}
+async function tuneTrack(){
+  $("zoomWrap").hidden = true; $("torchBtn").hidden = true; $("torchBtn").textContent = "Light on";
+  if (!track || !track.getCapabilities) return;
+  var caps = track.getCapabilities(), adv = {};
+  if (caps.focusMode && caps.focusMode.indexOf("continuous") >= 0) adv.focusMode = "continuous";
+  if (caps.zoom && caps.zoom.max > caps.zoom.min) {
+    // A little zoom lets you hold the phone further back, where it can focus
+    var z = $("zoom"), max = Math.min(caps.zoom.max, 6);
+    z.min = caps.zoom.min; z.max = max; z.step = caps.zoom.step || 0.1;
+    var startZoom = db.settings.zoom || Math.min(max, Math.max(caps.zoom.min, 1.6));
+    z.value = startZoom; adv.zoom = Number(z.value);
+    $("zoomWrap").hidden = false;
+  }
+  if (Object.keys(adv).length) { try { await track.applyConstraints({advanced:[adv]}); } catch(e) {} }
+  if (caps.torch) $("torchBtn").hidden = false;
+}
+$("zoom").addEventListener("input", function(e){
+  var val = Number(e.target.value);
+  if (track) track.applyConstraints({advanced:[{zoom:val}]}).catch(function(){});
+  db.settings.zoom = val; persist();
+});
+$("torchBtn").onclick = function(){
+  if (!track) return;
+  torchOn = !torchOn;
+  track.applyConstraints({advanced:[{torch:torchOn}]}).then(function(){ $("torchBtn").textContent = torchOn ? "Light off" : "Light on"; }).catch(function(){ torchOn = false; });
+};
+
+async function listCams(){
+  try { cams = (await navigator.mediaDevices.enumerateDevices()).filter(function(d){ return d.kind === "videoinput"; }); } catch(e) { cams = []; }
+  $("camBtn").hidden = cams.length < 2;
+  // First time only: phones with several back lenses sometimes hand over the ultra-wide,
+  // which can't focus up close. Prefer the main back camera.
+  if (db.settings.camId || !track || cams.length < 2) return false;
+  var backs = cams.filter(function(c){ return /back|rear|environment/i.test(c.label) && !/ultra|wide|tele|depth|macro|front/i.test(c.label); });
+  var main = backs.filter(function(c){ return /\b0\b/.test(c.label); })[0] || backs[0];
+  var curId = track.getSettings ? track.getSettings().deviceId : "";
+  if (main && main.deviceId && main.deviceId !== curId) { db.settings.camId = main.deviceId; persist(); return true; }
+  return false;
+}
+$("camBtn").onclick = async function(){
+  if (cams.length < 2) return;
+  var curId = track && track.getSettings ? track.getSettings().deviceId : db.settings.camId;
+  var i = cams.findIndex(function(c){ return c.deviceId === curId; });
+  db.settings.camId = cams[(i + 1) % cams.length].deviceId; db.settings.zoom = 0; persist();
+  await restartScan();
+  toast("Camera " + ((i + 1) % cams.length + 1) + " of " + cams.length);
+};
+
+async function startDecoding(){
+  if (detector) {
+    (async function loop(){
+      if (!scanActive || !stream) return;
+      try { var codes = await detector.detect($("video")); if (codes.length) { onCode(codes[0].rawValue); return; } } catch(e) {}
+      setTimeout(loop, 120);
+    })();
+  } else if (window.ZXing) {
+    var hints = new Map(), F = ZXing.BarcodeFormat;
+    hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, [F.EAN_13, F.EAN_8, F.UPC_A, F.UPC_E, F.CODE_128]);
+    hints.set(ZXing.DecodeHintType.TRY_HARDER, true);
+    zx = new ZXing.BrowserMultiFormatReader(hints, 150);
+    var cb = function(result){ if (result) onCode(result.getText()); };
+    if (zx.decodeFromStream) zx.decodeFromStream(stream, $("video"), cb);
+    else zx.decodeFromVideoElementContinuously($("video"), cb);
+  } else { throw new Error("no scanner"); }
+}
+async function restartScan(){
+  stopStream();
+  await openCamera();
+  if (await listCams()) { stopStream(); await openCamera(); }
+  await startDecoding();
+}
+
 $("scanBtn").onclick = async function(){
   if (!navigator.mediaDevices || !window.isSecureContext) { toast("Camera needs the https:// link (GitHub Pages gives you one)"); return; }
-  $("scanner").hidden = false; $("scanMsg").textContent = "Point the camera at the barcode";
-  var video = $("video");
+  $("scanner").hidden = false; scanActive = true;
   try {
-    var formats = [];
-    if ("BarcodeDetector" in window) { try { formats = (await BarcodeDetector.getSupportedFormats()).filter(function(f){ return ["ean_13","ean_8","upc_a","upc_e","code_128"].indexOf(f) >= 0; }); } catch(e) {} }
-    if (formats.length) {
-      var det = new BarcodeDetector({formats:formats});
-      stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:"environment"}}});
-      video.srcObject = stream; await video.play(); loopOn = true;
-      (async function loop(){
-        if (!loopOn) return;
-        try { var codes = await det.detect(video); if (codes.length) { onCode(codes[0].rawValue); return; } } catch(e) {}
-        setTimeout(loop, 200);
-      })();
-    } else if (window.ZXing) {
-      zx = new ZXing.BrowserMultiFormatReader();
-      zx.decodeFromConstraints({video:{facingMode:{ideal:"environment"}}}, video, function(result){ if (result) onCode(result.getText()); });
-    } else { throw new Error("no scanner"); }
+    if (!detector && "BarcodeDetector" in window) {
+      try {
+        var f = (await BarcodeDetector.getSupportedFormats()).filter(function(x){ return WANTED.indexOf(x) >= 0; });
+        if (f.length) detector = new BarcodeDetector({formats:f});
+      } catch(e) {}
+    }
+    await restartScan();
   } catch(e) {
     stopScan(); toast(e && e.name === "NotAllowedError" ? "Allow camera access to scan" : "Scanner isn’t available here – type the name instead");
   }
 };
 async function onCode(code){
-  if (!loopOn && !zx) return;
+  if (!scanActive) return;
   stopScan();
   if (navigator.vibrate) navigator.vibrate(60);
   cur.barcode = code; showBarcode();
