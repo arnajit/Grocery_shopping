@@ -1,0 +1,620 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1d3557">
+<title>Shelf Check – price comparison</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=Atkinson+Hyperlegible:wght@400;700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@zxing/library@0.21.3/umd/index.min.js"></script>
+<style>
+:root{
+  --bg:#f3f5f2; --surface:#ffffff; --ink:#1d3557; --muted:#5b6b80; --line:#d8dfe6;
+  --tag:#ffd23f; --tag-ink:#2b2100; --good:#1f7a4d; --bad:#b3261e; --field:#f7f9fb;
+  color-scheme:light;
+  box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px);
+  padding-bottom:env(safe-area-inset-bottom,0px);
+}
+@media (prefers-color-scheme:dark){
+  :root{
+    --bg:#0f1a28; --surface:#172536; --ink:#e8eef5; --muted:#9db0c4; --line:#2a3c52;
+    --tag:#ffd23f; --tag-ink:#2b2100; --good:#5fd39a; --bad:#ff8a80; --field:#1d2e42;
+    color-scheme:dark;
+  }
+}
+*,*::before,*::after{box-sizing:border-box}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 "Atkinson Hyperlegible",system-ui,-apple-system,"Segoe UI",sans-serif;-webkit-tap-highlight-color:transparent}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:10;background:var(--ink)}
+h1,h2,h3{font-family:"Bricolage Grotesque","Atkinson Hyperlegible",system-ui,sans-serif;margin:0;line-height:1.15}
+button,input,select,textarea{font:inherit;color:inherit}
+:focus-visible{outline:3px solid var(--tag);outline-offset:2px}
+
+header{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:var(--ink);color:var(--bg);padding:.75rem 1rem .5rem}
+@media (prefers-color-scheme:dark){header{background:#08111c;color:var(--ink)} body::before{background:#08111c}}
+header h1{font-size:1.35rem;font-weight:800;letter-spacing:-.01em}
+nav{display:flex;gap:.25rem;margin-top:.5rem}
+nav button{flex:1;border:0;background:transparent;color:inherit;opacity:.7;padding:.5rem .25rem;border-bottom:3px solid transparent;cursor:pointer;font-weight:700}
+nav button[aria-selected="true"]{opacity:1;border-bottom-color:var(--tag)}
+.badge{display:inline-block;min-width:1.3em;padding:0 .35em;border-radius:1em;background:var(--tag);color:var(--tag-ink);font-size:.8rem;margin-left:.25rem}
+
+main{max-width:640px;margin:0 auto;padding:1rem 1rem 6rem}
+section[hidden]{display:none}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:1rem;margin-bottom:1rem}
+label{display:block;font-size:.85rem;color:var(--muted);margin-bottom:.2rem}
+input,select,textarea{width:100%;background:var(--field);border:1px solid var(--line);border-radius:8px;padding:.6rem .65rem;min-height:44px}
+textarea{min-height:70px;resize:vertical}
+.row{display:flex;gap:.5rem;align-items:flex-end}
+.row>*{flex:1;min-width:0}
+.btn{border:1px solid var(--line);background:var(--field);border-radius:10px;padding:.6rem .8rem;min-height:44px;cursor:pointer;font-weight:700}
+.btn.primary{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+@media (prefers-color-scheme:dark){.btn.primary{background:var(--tag);color:var(--tag-ink);border-color:var(--tag)}}
+.btn.small{min-height:36px;padding:.35rem .6rem;font-size:.9rem}
+.btn.danger{color:var(--bad)}
+.btn-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:.5rem;margin-top:.75rem}
+.hint{font-size:.85rem;color:var(--muted);margin:.4rem 0 0}
+
+.store{border-top:1px dashed var(--line);padding-top:.85rem;margin-top:.85rem}
+.store:first-of-type{border-top:0;margin-top:0;padding-top:0}
+.store h3{font-size:1.05rem;margin-bottom:.5rem;display:flex;justify-content:space-between;align-items:center}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:.5rem}
+.size{display:grid;grid-template-columns:1fr 5.2rem;gap:.35rem}
+
+/* result: the shelf tag */
+.result-row{display:grid;grid-template-columns:1fr auto;gap:.25rem .75rem;align-items:center;padding:.65rem .75rem;border-radius:10px;border:1px solid var(--line);margin-bottom:.5rem}
+.result-row .name{font-weight:700}
+.result-row .meta{font-size:.85rem;color:var(--muted);grid-column:1}
+.result-row .price{font-family:"Bricolage Grotesque",system-ui,sans-serif;font-size:1.35rem;font-weight:800;text-align:right}
+.result-row.win{background:var(--tag);color:var(--tag-ink);border-color:var(--tag);position:relative;clip-path:polygon(0 0,calc(100% - 14px) 0,100% 50%,calc(100% - 14px) 100%,0 100%);padding-right:1.6rem}
+.result-row.win .meta{color:var(--tag-ink);opacity:.8}
+.verdict{font-weight:700;margin:.25rem 0 .75rem}
+.off{color:var(--good);font-weight:700}
+.win .off{color:var(--tag-ink)}
+
+.list-item{border-bottom:1px solid var(--line);padding:.8rem 0}
+.list-item:last-child{border-bottom:0}
+.list-item .top{display:flex;justify-content:space-between;gap:.5rem;align-items:baseline}
+.list-item .title{font-weight:700}
+.list-item .date{font-size:.8rem;color:var(--muted);white-space:nowrap}
+.chips{display:flex;flex-wrap:wrap;gap:.35rem;margin:.4rem 0}
+.chip{font-size:.85rem;padding:.15rem .5rem;border-radius:6px;background:var(--field);border:1px solid var(--line)}
+.chip.win{background:var(--tag);color:var(--tag-ink);border-color:var(--tag);font-weight:700}
+.note{font-size:.9rem;color:var(--muted);margin:.25rem 0}
+.actions{display:flex;flex-wrap:wrap;gap:.4rem;margin-top:.4rem}
+.totals{display:grid;grid-template-columns:repeat(3,1fr);gap:.5rem;text-align:center}
+.totals div{background:var(--field);border-radius:10px;padding:.6rem .25rem}
+.totals b{display:block;font-family:"Bricolage Grotesque",system-ui,sans-serif;font-size:1.25rem}
+.totals small{color:var(--muted)}
+.qty{display:flex;align-items:center;gap:.3rem}
+.qty button{width:36px;height:36px;border-radius:8px;border:1px solid var(--line);background:var(--field);cursor:pointer;font-weight:700}
+.empty{color:var(--muted);text-align:center;padding:1.25rem .5rem}
+.last-time{background:var(--field);border-radius:10px;padding:.6rem .75rem;margin-top:.6rem;font-size:.9rem}
+
+/* scanner */
+#scanner{position:fixed;inset:0;background:rgba(0,0,0,.88);z-index:20;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:1rem;padding-top:calc(1rem + env(safe-area-inset-top,0px))}
+#scanner[hidden]{display:none}
+#scanner video{width:100%;max-width:480px;border-radius:12px;background:#000;aspect-ratio:3/4;object-fit:cover}
+#scanner p{color:#fff;text-align:center}
+.scan-frame{position:relative;width:100%;max-width:480px}
+.scan-frame::after{content:"";position:absolute;left:10%;right:10%;top:45%;height:2px;background:var(--tag);box-shadow:0 0 12px var(--tag)}
+
+#toast{position:fixed;left:50%;bottom:calc(1.25rem + env(safe-area-inset-bottom,0px));transform:translateX(-50%) translateY(150%);background:var(--ink);color:var(--bg);padding:.65rem 1rem;border-radius:10px;font-weight:700;transition:transform .2s;z-index:30;max-width:90vw;text-align:center}
+#toast.show{transform:translateX(-50%) translateY(0)}
+@media (prefers-color-scheme:dark){#toast{background:var(--tag);color:var(--tag-ink)}}
+@media (prefers-reduced-motion:reduce){#toast{transition:none}}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+</style>
+</head>
+<body>
+<header>
+  <h1>Shelf Check</h1>
+  <nav role="tablist">
+    <button role="tab" data-tab="compare" aria-selected="true">Compare</button>
+    <button role="tab" data-tab="cart" aria-selected="false">Cart <span class="badge" id="cartCount">0</span></button>
+    <button role="tab" data-tab="history" aria-selected="false">History</button>
+  </nav>
+</header>
+
+<main>
+<!-- COMPARE -->
+<section id="tab-compare">
+  <div class="panel">
+    <label for="pName">Product name</label>
+    <div class="row">
+      <input id="pName" placeholder="e.g. Aashirvaad Atta 5kg" autocomplete="off">
+      <button class="btn" id="scanBtn" style="flex:0 0 auto" aria-label="Scan barcode">Scan</button>
+    </div>
+    <p class="hint" id="barcodeInfo"></p>
+    <div class="btn-grid">
+      <button class="btn small" id="copyBtn">Copy name</button>
+      <button class="btn small" id="amzBtn">Copy + Amazon</button>
+      <button class="btn small" id="fkBtn">Copy + Flipkart</button>
+    </div>
+    <p class="hint">The name goes to your clipboard, so you can paste it into Amazon Fresh or Flipkart Minutes.</p>
+    <div id="lastTime"></div>
+  </div>
+
+  <div class="panel" id="storeForms"></div>
+
+  <div class="panel">
+    <h2 style="font-size:1.15rem;margin-bottom:.6rem">Best buy</h2>
+    <div id="result"><p class="empty">Enter at least one price to compare.</p></div>
+  </div>
+
+  <div class="panel">
+    <label for="pNotes">Notes</label>
+    <textarea id="pNotes" placeholder="e.g. Buy 2 get 1 only till Sunday, Amazon delivery fee ₹30"></textarea>
+    <div class="row" style="margin-top:.75rem">
+      <button class="btn" id="clearBtn">New product</button>
+      <button class="btn primary" id="saveBtn">Save to history</button>
+    </div>
+  </div>
+</section>
+
+<!-- CART -->
+<section id="tab-cart" hidden>
+  <div class="panel">
+    <div class="totals" id="cartTotals"></div>
+  </div>
+  <div class="panel" id="cartList"></div>
+  <div class="row">
+    <button class="btn danger" id="clearCart">Empty cart</button>
+    <button class="btn primary" data-sync>Sync to Google Sheet</button>
+  </div>
+  <p class="hint sync-status"></p>
+</section>
+
+<!-- HISTORY -->
+<section id="tab-history" hidden>
+  <div class="panel">
+    <label for="hSearch">Search history</label>
+    <input id="hSearch" placeholder="Product name or barcode" autocomplete="off">
+  </div>
+  <div class="panel" id="historyList"></div>
+  <div class="panel">
+    <h2 style="font-size:1.05rem;margin-bottom:.4rem">Google Sheet</h2>
+    <p class="hint" style="margin-top:0">Sends your history and current cart to your sheet. Nothing is sent until you tap Sync.</p>
+    <div id="syncSetup" style="margin-top:.6rem">
+      <label for="sUrl">Web app link</label>
+      <input id="sUrl" placeholder="https://script.google.com/macros/s/…/exec" autocomplete="off" inputmode="url">
+      <label for="sKey" style="margin-top:.5rem">Secret key</label>
+      <input id="sKey" type="password" placeholder="Same key as in the script" autocomplete="off">
+      <div class="row" style="margin-top:.6rem">
+        <button class="btn" id="sSave">Save settings</button>
+        <button class="btn" id="sTest">Test connection</button>
+      </div>
+    </div>
+    <div class="row" style="margin-top:.6rem"><button class="btn primary" data-sync>Sync to Google Sheet</button></div>
+    <p class="hint sync-status"></p>
+  </div>
+  <div class="panel">
+    <h2 style="font-size:1.05rem;margin-bottom:.4rem">Backup</h2>
+    <p class="hint" style="margin-top:0">Your data lives only in this browser. Download a backup now and then, especially before clearing browser data.</p>
+    <div class="row" style="margin-top:.6rem">
+      <button class="btn" id="exportBtn">Download backup</button>
+      <label class="btn" style="text-align:center;margin:0;color:var(--ink);font-size:1rem;display:flex;align-items:center;justify-content:center">Restore backup<input type="file" id="importFile" accept="application/json" class="sr"></label>
+    </div>
+  </div>
+</section>
+</main>
+
+<div id="scanner" hidden>
+  <div class="scan-frame"><video id="video" playsinline muted></video></div>
+  <p id="scanMsg">Point the camera at the barcode</p>
+  <button class="btn" id="stopScan" style="background:#fff;color:#000">Cancel</button>
+</div>
+<div id="toast" role="status" aria-live="polite"></div>
+
+<script>
+(function(){
+"use strict";
+var STORES = [
+  {id:"rsp", name:"Smart Point", sub:"in store"},
+  {id:"amz", name:"Amazon", sub:"Fresh / Now"},
+  {id:"fk",  name:"Flipkart", sub:"Minutes"}
+];
+var KEY = "shelfcheck:v1";
+var db = {records:[], cart:[], trip:null, settings:{}};
+try { var raw = localStorage.getItem(KEY); if (raw) { var p = JSON.parse(raw); db.records = p.records || []; db.cart = p.cart || []; db.trip = p.trip || null; db.settings = p.settings || {}; } } catch(e) {}
+function touchTrip(){ if (!db.trip) db.trip = {id:uid(), started:Date.now()}; db.trip.changed = Date.now(); }
+function persist(){ try { localStorage.setItem(KEY, JSON.stringify(db)); } catch(e) { toast("Couldn’t save – storage is full or blocked"); } }
+
+var $ = function(id){ return document.getElementById(id); };
+function esc(s){ return String(s == null ? "" : s).replace(/[&<>"']/g, function(c){ return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]; }); }
+function num(v){ var n = parseFloat(v); return isFinite(n) && n > 0 ? n : null; }
+function rs(n){ return "₹" + (Math.round(n * 100) / 100).toLocaleString("en-IN"); }
+function uid(){ return Date.now().toString(36) + Math.random().toString(36).slice(2, 6); }
+function fmtDate(t){ return new Date(t).toLocaleDateString("en-IN", {day:"numeric", month:"short", year:"numeric"}); }
+var tTimer;
+function toast(msg){ var t = $("toast"); t.textContent = msg; t.classList.add("show"); clearTimeout(tTimer); tTimer = setTimeout(function(){ t.classList.remove("show"); }, 2200); }
+
+/* ---------- current product ---------- */
+function blank(){ return {id:null, name:"", barcode:"", notes:"", prices:{rsp:{}, amz:{}, fk:{}}}; }
+var cur = blank();
+
+function buildForms(){
+  $("storeForms").innerHTML = STORES.map(function(s){
+    return '<div class="store" data-store="'+s.id+'">' +
+      '<h3><span>'+s.name+' <small style="font-weight:600;color:var(--muted);font-size:.8rem">'+s.sub+'</small></span></h3>' +
+      '<div class="grid2">' +
+        '<div><label>Offer price ₹</label><input inputmode="decimal" data-f="price" placeholder="Selling price"></div>' +
+        '<div><label>MRP ₹</label><input inputmode="decimal" data-f="mrp" placeholder="Original"></div>' +
+        '<div><label>Pack size</label><div class="size"><input inputmode="decimal" data-f="size" placeholder="500"><select data-f="unit" aria-label="Unit"><option>g</option><option>kg</option><option>ml</option><option>L</option><option>pc</option></select></div></div>' +
+        '<div><label>Offer</label><input data-f="offer" placeholder="e.g. Buy 1 Get 1"></div>' +
+      '</div></div>';
+  }).join("");
+  $("storeForms").addEventListener("input", function(e){
+    var box = e.target.closest("[data-store]"); if (!box) return;
+    var f = e.target.getAttribute("data-f");
+    var sid = box.getAttribute("data-store");
+    cur.prices[sid][f] = e.target.value;
+    // copy pack size to empty stores – usually the same product
+    if (f === "size" || f === "unit") syncSize(sid, f, e.target.value);
+    renderResult();
+  });
+  $("storeForms").addEventListener("change", function(e){ if (e.target.tagName === "SELECT") e.target.dispatchEvent(new Event("input", {bubbles:true})); });
+}
+function syncSize(src, f, val){
+  STORES.forEach(function(s){
+    if (s.id === src) return;
+    var p = cur.prices[s.id];
+    if (f === "size" && !p.price && !p.mrp) { p.size = val; setField(s.id, "size", val); }
+    if (f === "unit" && !p.price && !p.mrp) { p.unit = val; setField(s.id, "unit", val); }
+  });
+}
+function setField(sid, f, val){ var el = document.querySelector('[data-store="'+sid+'"] [data-f="'+f+'"]'); if (el) el.value = val || (f === "unit" ? "g" : ""); }
+
+function loadIntoForm(r, keepPrices){
+  cur = JSON.parse(JSON.stringify(r));
+  if (!keepPrices) { cur.id = null; cur.notes = ""; STORES.forEach(function(s){ var o = cur.prices[s.id] || {}; cur.prices[s.id] = {size:o.size || "", unit:o.unit || "g"}; }); }
+  $("pName").value = cur.name || "";
+  $("pNotes").value = cur.notes || "";
+  STORES.forEach(function(s){ ["price","mrp","size","unit","offer"].forEach(function(f){ setField(s.id, f, (cur.prices[s.id] || {})[f]); }); });
+  showBarcode(); renderLastTime(); renderResult();
+}
+
+function calc(p){
+  if (!p) return null;
+  var price = num(p.price) || num(p.mrp); if (!price) return null;
+  var mrp = num(p.mrp);
+  var disc = mrp && mrp > price ? Math.round((mrp - price) / mrp * 100) : 0;
+  var size = num(p.size), unit = p.unit || "g", per = null, base = null;
+  if (size) {
+    if (unit === "g") { per = price / (size / 1000); base = "kg"; }
+    else if (unit === "kg") { per = price / size; base = "kg"; }
+    else if (unit === "ml") { per = price / (size / 1000); base = "L"; }
+    else if (unit === "L") { per = price / size; base = "L"; }
+    else { per = price / size; base = "pc"; }
+  }
+  return {price:price, mrp:mrp, disc:disc, per:per, base:base, size:size, unit:unit, offer:p.offer || ""};
+}
+function compare(r){
+  var rows = STORES.map(function(s){ return {s:s, c:calc(r.prices[s.id])}; }).filter(function(x){ return x.c; });
+  if (!rows.length) return {rows:[], win:null, byUnit:false};
+  var bases = rows.map(function(x){ return x.c.base; });
+  var byUnit = bases.every(function(b){ return b && b === bases[0]; });
+  var key = function(x){ return byUnit ? x.c.per : x.c.price; };
+  rows.sort(function(a, b){ return key(a) - key(b); });
+  return {rows:rows, win:rows[0], byUnit:byUnit};
+}
+
+function renderResult(){
+  var res = compare(cur), out = $("result");
+  if (!res.rows.length) { out.innerHTML = '<p class="empty">Enter at least one price to compare.</p>'; return; }
+  var v = "";
+  if (res.rows.length > 1) {
+    var a = res.rows[0], b = res.rows[1];
+    if (res.byUnit) {
+      var diff = b.c.per - a.c.per;
+      v = diff < 0.005 ? "Same price per " + a.c.base + " at the top two." : a.s.name + " is cheapest, " + rs(diff) + " less per " + a.c.base + " than " + b.s.name + ".";
+    } else {
+      var d2 = b.c.price - a.c.price;
+      v = a.s.name + " has the lowest price, " + rs(d2) + " less than " + b.s.name + ".";
+      if (res.rows.some(function(x){ return x.c.size; })) v += " Add pack sizes to all of them to compare fairly.";
+    }
+  }
+  out.innerHTML = (v ? '<p class="verdict">'+esc(v)+'</p>' : '') + res.rows.map(function(x, i){
+    var c = x.c, meta = [];
+    if (c.mrp && c.mrp > c.price) meta.push('MRP ' + rs(c.mrp) + ' <span class="off">' + c.disc + '% off</span>');
+    if (c.per) meta.push(rs(c.per) + ' / ' + c.base);
+    if (c.offer) meta.push(esc(c.offer));
+    return '<div class="result-row' + (i === 0 && res.rows.length > 1 ? ' win' : '') + '">' +
+      '<div><div class="name">' + x.s.name + '</div><div class="meta">' + meta.join('<br>') + '</div></div>' +
+      '<div style="text-align:right"><div class="price">' + rs(c.price) + '</div>' +
+      '<button class="btn small" data-addcart="' + x.s.id + '" style="margin-top:.25rem">Add to cart</button></div></div>';
+  }).join("");
+}
+
+/* ---------- name / barcode ---------- */
+function showBarcode(){ $("barcodeInfo").textContent = cur.barcode ? "Barcode " + cur.barcode : ""; }
+function findLast(name, barcode){
+  var n = (name || "").trim().toLowerCase();
+  for (var i = db.records.length - 1; i >= 0; i--) {
+    var r = db.records[i];
+    if (r.id === cur.id) continue;
+    if ((barcode && r.barcode === barcode) || (n && r.name.trim().toLowerCase() === n)) return r;
+  }
+  return null;
+}
+function renderLastTime(){
+  var r = findLast(cur.name, cur.barcode), el = $("lastTime");
+  if (!r) { el.innerHTML = ""; return; }
+  var chips = STORES.map(function(s){ var c = calc(r.prices[s.id]); return c ? s.name + " " + rs(c.price) : null; }).filter(Boolean).join(", ");
+  el.innerHTML = '<div class="last-time"><b>Last time (' + fmtDate(r.date) + '):</b> ' + esc(chips || "no prices") + (r.notes ? '<br><span class="note">' + esc(r.notes) + '</span>' : '') + '</div>';
+}
+$("pName").addEventListener("input", function(e){ cur.name = e.target.value; renderLastTime(); });
+$("pNotes").addEventListener("input", function(e){ cur.notes = e.target.value; });
+
+function copyText(t){
+  if (navigator.clipboard && window.isSecureContext) return navigator.clipboard.writeText(t).catch(fallbackCopy.bind(null, t));
+  fallbackCopy(t); return Promise.resolve();
+}
+function fallbackCopy(t){ var ta = document.createElement("textarea"); ta.value = t; ta.style.position = "fixed"; ta.style.opacity = "0"; document.body.appendChild(ta); ta.select(); try { document.execCommand("copy"); } catch(e) {} ta.remove(); }
+function needName(){ var n = $("pName").value.trim(); if (!n) { toast("Type or scan a product name first"); $("pName").focus(); } return n; }
+$("copyBtn").onclick = function(){ var n = needName(); if (n) copyText(n).then(function(){ toast("Copied: " + n); }); };
+$("amzBtn").onclick = function(){ var n = needName(); if (!n) return; copyText(n); window.open("https://www.amazon.in/s?k=" + encodeURIComponent(n), "_blank"); };
+$("fkBtn").onclick = function(){ var n = needName(); if (!n) return; copyText(n); window.open("https://www.flipkart.com/search?q=" + encodeURIComponent(n), "_blank"); };
+
+/* ---------- save / cart ---------- */
+function save(silent){
+  cur.name = $("pName").value.trim();
+  cur.notes = $("pNotes").value.trim();
+  if (!cur.name) { toast("Add a product name before saving"); $("pName").focus(); return false; }
+  if (!compare(cur).rows.length) { toast("Add at least one price before saving"); return false; }
+  cur.date = Date.now();
+  var copy = JSON.parse(JSON.stringify(cur));
+  if (cur.id) { var i = db.records.findIndex(function(r){ return r.id === cur.id; }); if (i >= 0) db.records[i] = copy; else db.records.push(copy); }
+  else { cur.id = copy.id = uid(); db.records.push(copy); }
+  persist(); renderHistory(); renderSync();
+  if (!silent) toast("Saved to history");
+  return true;
+}
+$("saveBtn").onclick = function(){ save(false); };
+$("clearBtn").onclick = function(){ cur = blank(); loadIntoForm(cur, true); $("pName").focus(); };
+$("result").addEventListener("click", function(e){
+  var b = e.target.closest("[data-addcart]"); if (!b) return;
+  if (!save(true)) return;
+  var sid = b.getAttribute("data-addcart");
+  var ex = db.cart.find(function(c){ return c.recordId === cur.id && c.store === sid; });
+  if (ex) ex.count++; else db.cart.push({id:uid(), recordId:cur.id, store:sid, count:1});
+  touchTrip(); persist(); renderCart();
+  toast("Added to cart from " + STORES.find(function(s){ return s.id === sid; }).name);
+});
+
+function renderCart(){
+  var total = 0, mrpTotal = 0, items = 0;
+  var html = db.cart.map(function(it){
+    var r = db.records.find(function(x){ return x.id === it.recordId; });
+    if (!r) return "";
+    var s = STORES.find(function(x){ return x.id === it.store; });
+    var c = calc(r.prices[it.store]); if (!c) return "";
+    total += c.price * it.count; mrpTotal += (c.mrp && c.mrp > c.price ? c.mrp : c.price) * it.count; items += it.count;
+    return '<div class="list-item"><div class="top"><span class="title">' + esc(r.name) + '</span><b>' + rs(c.price * it.count) + '</b></div>' +
+      '<div class="chips"><span class="chip">' + s.name + '</span>' +
+      (c.mrp && c.mrp > c.price ? '<span class="chip">MRP ' + rs(c.mrp) + '</span><span class="chip off">' + c.disc + '% off</span>' : '') +
+      (c.offer ? '<span class="chip">' + esc(c.offer) + '</span>' : '') + '</div>' +
+      (r.notes ? '<p class="note">' + esc(r.notes) + '</p>' : '') +
+      '<div class="actions qty"><button data-q="-1" data-id="' + it.id + '" aria-label="One less">−</button><span>' + it.count + ' × ' + rs(c.price) + '</span><button data-q="1" data-id="' + it.id + '" aria-label="One more">+</button></div></div>';
+  }).join("");
+  $("cartList").innerHTML = html || '<p class="empty">Your cart is empty. Compare a product and tap “Add to cart”.</p>';
+  $("cartTotals").innerHTML = '<div><b>' + rs(total) + '</b><small>You pay</small></div><div><b>' + rs(mrpTotal) + '</b><small>At MRP</small></div><div><b class="off">' + rs(mrpTotal - total) + '</b><small>Saved</small></div>';
+  $("cartCount").textContent = items;
+  renderSync();
+}
+$("cartList").addEventListener("click", function(e){
+  var b = e.target.closest("[data-q]"); if (!b) return;
+  var it = db.cart.find(function(c){ return c.id === b.getAttribute("data-id"); }); if (!it) return;
+  it.count += parseInt(b.getAttribute("data-q"), 10);
+  if (it.count <= 0) db.cart = db.cart.filter(function(c){ return c !== it; });
+  touchTrip(); persist(); renderCart();
+});
+$("clearCart").onclick = function(){
+  if (!db.cart.length) return;
+  var unsynced = db.settings.url && db.trip && (!db.trip.synced || db.trip.synced < db.trip.changed);
+  var msg = unsynced ? "This cart hasn’t been synced to your Google Sheet yet. Empty it anyway? Your history stays." : "Remove everything from the cart? Your history stays.";
+  if (confirm(msg)) { db.cart = []; db.trip = null; persist(); renderCart(); toast("Cart emptied"); }
+};
+
+/* ---------- history ---------- */
+function renderHistory(){
+  var q = $("hSearch").value.trim().toLowerCase();
+  var list = db.records.slice().reverse().filter(function(r){ return !q || r.name.toLowerCase().indexOf(q) >= 0 || (r.barcode || "").indexOf(q) >= 0; });
+  $("historyList").innerHTML = list.length ? list.map(function(r){
+    var res = compare(r);
+    var chips = res.rows.map(function(x, i){
+      var c = x.c;
+      var t = x.s.name + " " + rs(c.price) + (c.mrp && c.mrp > c.price ? " (MRP " + rs(c.mrp) + ", " + c.disc + "% off)" : "") + (c.offer ? " – " + c.offer : "");
+      return '<span class="chip' + (i === 0 && res.rows.length > 1 ? ' win' : '') + '">' + esc(t) + '</span>';
+    }).join("");
+    return '<div class="list-item"><div class="top"><span class="title">' + esc(r.name) + '</span><span class="date">' + fmtDate(r.date) + '</span></div>' +
+      '<div class="chips">' + chips + '</div>' + (r.notes ? '<p class="note">' + esc(r.notes) + '</p>' : '') +
+      '<div class="actions"><button class="btn small" data-h="again" data-id="' + r.id + '">Compare again</button>' +
+      '<button class="btn small" data-h="edit" data-id="' + r.id + '">Edit</button>' +
+      '<button class="btn small danger" data-h="del" data-id="' + r.id + '">Delete</button></div></div>';
+  }).join("") : '<p class="empty">' + (q ? "Nothing matches “" + esc(q) + "”." : "Saved comparisons will show up here.") + '</p>';
+}
+$("hSearch").addEventListener("input", renderHistory);
+$("historyList").addEventListener("click", function(e){
+  var b = e.target.closest("[data-h]"); if (!b) return;
+  var r = db.records.find(function(x){ return x.id === b.getAttribute("data-id"); }); if (!r) return;
+  var act = b.getAttribute("data-h");
+  if (act === "del") {
+    if (!confirm("Delete “" + r.name + "” from history?")) return;
+    db.records = db.records.filter(function(x){ return x !== r; });
+    db.cart = db.cart.filter(function(c){ return c.recordId !== r.id; });
+    if (cur.id === r.id) cur.id = null;
+    persist(); renderHistory(); renderCart(); return;
+  }
+  loadIntoForm(r, act === "edit");
+  showTab("compare"); window.scrollTo(0, 0);
+  toast(act === "edit" ? "Editing saved entry" : "Enter today’s prices");
+});
+
+$("exportBtn").onclick = function(){
+  var blob = new Blob([JSON.stringify(db, null, 2)], {type:"application/json"});
+  var a = document.createElement("a"); a.href = URL.createObjectURL(blob);
+  a.download = "shelf-check-backup-" + new Date().toISOString().slice(0, 10) + ".json";
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(function(){ URL.revokeObjectURL(a.href); }, 1000);
+};
+$("importFile").onchange = function(e){
+  var f = e.target.files[0]; if (!f) return;
+  var rd = new FileReader();
+  rd.onload = function(){
+    try {
+      var d = JSON.parse(rd.result);
+      if (!Array.isArray(d.records)) throw new Error();
+      if (!confirm("Replace current data with this backup (" + d.records.length + " products)?")) return;
+      db = {records:d.records, cart:d.cart || [], trip:d.trip || null, settings:db.settings}; persist(); renderHistory(); renderCart(); renderSync(); toast("Backup restored");
+    } catch(err) { toast("That file isn’t a Shelf Check backup"); }
+  };
+  rd.readAsText(f); e.target.value = "";
+};
+
+/* ---------- Google Sheet sync ---------- */
+function fmtTime(t){ return new Date(t).toLocaleString("en-IN", {day:"numeric", month:"short", hour:"numeric", minute:"2-digit"}); }
+function unsyncedCount(){ return db.records.filter(function(r){ return !r.syncedAt || r.syncedAt < r.date; }).length; }
+function renderSync(){
+  var s = db.settings, txt;
+  if (!s.url) txt = "Add your Google Sheet link in History to turn on syncing.";
+  else {
+    var n = unsyncedCount();
+    var cartPending = db.cart.length && db.trip && (!db.trip.synced || db.trip.synced < db.trip.changed);
+    txt = (s.lastSync ? "Last synced " + fmtTime(s.lastSync) + ". " : "Not synced yet. ") +
+      (n ? n + " product" + (n > 1 ? "s" : "") + " to sync" : "History is up to date") +
+      (cartPending ? ", cart has changes." : ".");
+  }
+  document.querySelectorAll(".sync-status").forEach(function(el){ el.textContent = txt; });
+}
+function saveSettings(){
+  var url = $("sUrl").value.trim(), key = $("sKey").value.trim();
+  if (url && !/^https:\/\/script\.google\.com\/macros\/s\/[^/]+\/exec/.test(url)) { toast("The link should end in /exec – copy it from Deploy → Manage deployments"); return false; }
+  db.settings.url = url; db.settings.key = key; persist(); renderSync(); return true;
+}
+$("sSave").onclick = function(){ if (saveSettings()) toast("Settings saved"); };
+$("sTest").onclick = function(){ if (!saveSettings()) return; if (!db.settings.url) { toast("Paste the web app link first"); return; } sendToSheet({test:true}); };
+
+function sheetRows(){
+  var history = db.records.map(function(r){
+    var res = compare(r), best = res.rows[0];
+    var row = [r.id, r.date, r.name, r.barcode || "", best ? best.s.name : "", res.byUnit && best ? best.c.base : "", r.notes || ""];
+    STORES.forEach(function(s){
+      var c = calc(r.prices[s.id]);
+      row.push(c ? c.price : "", c && c.mrp ? c.mrp : "", c ? c.disc : "", c && c.size ? c.size + " " + c.unit : "", c && c.per ? Math.round(c.per * 100) / 100 : "", c ? c.offer : "");
+    });
+    return row;
+  });
+  var now = Date.now();
+  var cart = db.cart.map(function(it){
+    var r = db.records.find(function(x){ return x.id === it.recordId; }); if (!r) return null;
+    var c = calc(r.prices[it.store]); if (!c) return null;
+    var s = STORES.find(function(x){ return x.id === it.store; });
+    var full = c.mrp && c.mrp > c.price ? c.mrp : c.price;
+    return [now, db.trip.id, db.trip.started, r.name, r.barcode || "", s.name, it.count, c.price, c.mrp || "", c.disc, c.price * it.count, (full - c.price) * it.count, c.offer, r.notes || ""];
+  }).filter(Boolean);
+  return {history:history, cart:cart};
+}
+var syncing = false;
+async function sendToSheet(opts){
+  if (syncing) return;
+  var s = db.settings;
+  if (!s.url) { toast("Add your Google Sheet link first"); showTab("history"); $("sUrl").focus(); return; }
+  if (!navigator.onLine) { toast("You’re offline – sync when you have signal. Everything is saved on this phone."); return; }
+  if (db.cart.length) touchTripIfMissing();
+  var payload = {key:s.key || "", test:!!(opts && opts.test)};
+  if (!payload.test) { var rows = sheetRows(); payload.history = rows.history; payload.cart = rows.cart; payload.tripId = db.trip ? db.trip.id : ""; }
+  syncing = true;
+  document.querySelectorAll("[data-sync]").forEach(function(b){ b.disabled = true; b.textContent = "Syncing…"; });
+  try {
+    var resp = await fetch(s.url, {method:"POST", headers:{"Content-Type":"text/plain;charset=utf-8"}, body:JSON.stringify(payload), redirect:"follow"});
+    var d = await resp.json();
+    if (!d.ok) throw new Error(d.error || "The sheet refused the sync");
+    if (payload.test) { toast("Connected to “" + (d.sheet || "your sheet") + "”"); return; }
+    var t = Date.now();
+    db.records.forEach(function(r){ r.syncedAt = t; });
+    if (db.trip) db.trip.synced = t;
+    s.lastSync = t; persist();
+    toast("Synced: " + d.history.added + " new, " + d.history.updated + " updated, " + d.cart.added + " cart rows");
+  } catch(e) {
+    toast(e.message && e.message.indexOf("Failed to fetch") < 0 && !(e instanceof SyntaxError) ? e.message : "Couldn’t reach the sheet – check the link and that access is set to Anyone");
+  } finally {
+    syncing = false;
+    document.querySelectorAll("[data-sync]").forEach(function(b){ b.disabled = false; b.textContent = "Sync to Google Sheet"; });
+    renderSync();
+  }
+}
+function touchTripIfMissing(){ if (!db.trip) { db.trip = {id:uid(), started:Date.now(), changed:Date.now()}; persist(); } }
+document.addEventListener("click", function(e){ if (e.target.closest("[data-sync]")) sendToSheet(); });
+
+/* ---------- tabs ---------- */
+function showTab(t){
+  document.querySelectorAll("nav button").forEach(function(b){ b.setAttribute("aria-selected", b.getAttribute("data-tab") === t ? "true" : "false"); });
+  ["compare","cart","history"].forEach(function(x){ $("tab-" + x).hidden = x !== t; });
+}
+document.querySelector("nav").addEventListener("click", function(e){ var b = e.target.closest("[data-tab]"); if (b) showTab(b.getAttribute("data-tab")); });
+
+/* ---------- scanner ---------- */
+var stream = null, zx = null, loopOn = false;
+function stopScan(){
+  loopOn = false;
+  if (zx) { try { zx.reset(); } catch(e) {} zx = null; }
+  if (stream) { stream.getTracks().forEach(function(t){ t.stop(); }); stream = null; }
+  $("scanner").hidden = true;
+}
+$("stopScan").onclick = stopScan;
+$("scanBtn").onclick = async function(){
+  if (!navigator.mediaDevices || !window.isSecureContext) { toast("Camera needs the https:// link (GitHub Pages gives you one)"); return; }
+  $("scanner").hidden = false; $("scanMsg").textContent = "Point the camera at the barcode";
+  var video = $("video");
+  try {
+    var formats = [];
+    if ("BarcodeDetector" in window) { try { formats = (await BarcodeDetector.getSupportedFormats()).filter(function(f){ return ["ean_13","ean_8","upc_a","upc_e","code_128"].indexOf(f) >= 0; }); } catch(e) {} }
+    if (formats.length) {
+      var det = new BarcodeDetector({formats:formats});
+      stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:"environment"}}});
+      video.srcObject = stream; await video.play(); loopOn = true;
+      (async function loop(){
+        if (!loopOn) return;
+        try { var codes = await det.detect(video); if (codes.length) { onCode(codes[0].rawValue); return; } } catch(e) {}
+        setTimeout(loop, 200);
+      })();
+    } else if (window.ZXing) {
+      zx = new ZXing.BrowserMultiFormatReader();
+      zx.decodeFromConstraints({video:{facingMode:{ideal:"environment"}}}, video, function(result){ if (result) onCode(result.getText()); });
+    } else { throw new Error("no scanner"); }
+  } catch(e) {
+    stopScan(); toast(e && e.name === "NotAllowedError" ? "Allow camera access to scan" : "Scanner isn’t available here – type the name instead");
+  }
+};
+async function onCode(code){
+  if (!loopOn && !zx) return;
+  stopScan();
+  if (navigator.vibrate) navigator.vibrate(60);
+  cur.barcode = code; showBarcode();
+  var known = findLast("", code);
+  if (known) { loadIntoForm(known, false); cur.barcode = code; showBarcode(); toast("Found in your history"); return; }
+  toast("Looking up " + code + "…");
+  try {
+    var r = await fetch("https://world.openfoodfacts.org/api/v2/product/" + encodeURIComponent(code) + ".json?fields=product_name,brands,quantity");
+    var d = await r.json();
+    if (d.status === 1 && d.product && d.product.product_name) {
+      var p = d.product, brand = (p.brands || "").split(",")[0].trim();
+      var name = [brand && p.product_name.toLowerCase().indexOf(brand.toLowerCase()) < 0 ? brand : "", p.product_name, p.quantity || ""].join(" ").replace(/\s+/g, " ").trim();
+      $("pName").value = cur.name = name; renderLastTime();
+      var m = /([\d.]+)\s*(kg|g|ml|l)\b/i.exec(p.quantity || "");
+      if (m) { var u = m[2].toLowerCase() === "l" ? "L" : m[2].toLowerCase(); STORES.forEach(function(s){ cur.prices[s.id].size = m[1]; cur.prices[s.id].unit = u; setField(s.id, "size", m[1]); setField(s.id, "unit", u); }); }
+      toast("Name filled in – check it looks right");
+    } else { toast("Not in the product database – type the name, it’ll be remembered for this barcode"); $("pName").focus(); }
+  } catch(e) { toast("Couldn’t look it up – type the name, it’ll be remembered"); $("pName").focus(); }
+}
+
+/* ---------- init ---------- */
+$("sUrl").value = db.settings.url || ""; $("sKey").value = db.settings.key || "";
+buildForms(); loadIntoForm(cur, true); renderCart(); renderHistory(); renderSync();
+})();
+</script>
+</body>
+</html>
